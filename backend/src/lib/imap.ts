@@ -124,6 +124,8 @@ export async function fetchMailboxes(email: string, pass: string) {
   }
 }
 
+export const listMailboxes = fetchMailboxes;
+
 export async function fetchMessages(
   email: string,
   pass: string,
@@ -209,7 +211,8 @@ export async function fetchMessages(
     }
 
     // High-speed sequence slicing directly from total exists (Instant O(1) IMAP fetch without full search)
-    const total = client.mailbox?.exists ?? 0;
+    const mailbox = typeof client.mailbox === 'object' && client.mailbox ? client.mailbox : null;
+    const total = mailbox ? mailbox.exists : 0;
     if (total === 0) {
       return { messages: [], total: 0, hasMore: false };
     }
