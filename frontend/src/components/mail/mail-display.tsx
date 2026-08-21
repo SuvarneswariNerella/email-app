@@ -147,10 +147,10 @@ export function MailDisplay() {
   const lastIndex = thread.length - 1;
 
   // Toggle single message expand/collapse
-  const toggleExpand = (msgKey: string) => {
+  const toggleExpand = (msgKey: string, currentExpanded: boolean) => {
     setExpandedMap((prev) => ({
       ...prev,
-      [msgKey]: prev[msgKey] !== undefined ? !prev[msgKey] : false, // Default was expanded if last, so toggle flips it
+      [msgKey]: !currentExpanded,
     }));
   };
 
@@ -190,7 +190,7 @@ export function MailDisplay() {
             variant="ghost"
             size="sm"
             onClick={() => handleReplyMessage(latestMsg, false)}
-            className="h-8 text-xs gap-1.5"
+            className="h-8 text-xs gap-1.5 cursor-pointer"
           >
             <Reply className="h-3.5 w-3.5" />
             Reply
@@ -201,7 +201,7 @@ export function MailDisplay() {
             variant="ghost"
             size="sm"
             onClick={() => handleReplyMessage(latestMsg, true)}
-            className="h-8 text-xs gap-1.5 hidden sm:inline-flex"
+            className="h-8 text-xs gap-1.5 hidden sm:inline-flex cursor-pointer"
           >
             <ReplyAll className="h-3.5 w-3.5" />
             Reply All
@@ -212,7 +212,7 @@ export function MailDisplay() {
             variant="ghost"
             size="sm"
             onClick={() => handleForwardMessage(latestMsg)}
-            className="h-8 text-xs gap-1.5"
+            className="h-8 text-xs gap-1.5 cursor-pointer"
           >
             <Forward className="h-3.5 w-3.5" />
             Forward
@@ -239,7 +239,7 @@ export function MailDisplay() {
             size="icon"
             onClick={() => starMutation.mutate()}
             title={message.starred ? 'Starred' : 'Not starred'}
-            className="h-8 w-8 text-muted-foreground hover:text-amber-500"
+            className="h-8 w-8 text-muted-foreground hover:text-amber-500 cursor-pointer"
           >
             <Star className={`h-4 w-4 ${message.starred ? 'fill-amber-400 text-amber-400' : ''}`} />
           </Button>
@@ -250,7 +250,7 @@ export function MailDisplay() {
             size="icon"
             onClick={() => toggleReadMutation.mutate()}
             title={message.unread ? 'Mark as read' : 'Mark as unread'}
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground cursor-pointer"
           >
             {message.unread ? <MailOpen className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
           </Button>
@@ -261,7 +261,7 @@ export function MailDisplay() {
             size="icon"
             onClick={() => deleteMutation.mutate()}
             title="Delete email"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive cursor-pointer"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -286,11 +286,10 @@ export function MailDisplay() {
         </div>
 
         {/* Conversation Thread Messages */}
-        <div className="flex-1 p-4 space-y-4">
+        <div className="flex-1 p-4 space-y-4 pb-8">
           {thread.map((msg, idx) => {
             const key = `${msg.folder || activeFolder}:${msg.uid || msg.id}`;
             const expanded = isMsgExpanded(msg, idx);
-            const isLast = idx === lastIndex;
 
             const sanitizedHtml = msg.bodyHtml
               ? DOMPurify.sanitize(msg.bodyHtml, {
@@ -310,7 +309,7 @@ export function MailDisplay() {
               >
                 {/* Message Header */}
                 <div
-                  onClick={() => toggleExpand(key)}
+                  onClick={() => toggleExpand(key, expanded)}
                   className={`flex items-start justify-between gap-4 p-4 select-none ${
                     expanded ? 'border-b border-border/40 bg-card' : ''
                   }`}
@@ -395,72 +394,11 @@ export function MailDisplay() {
                         />
                       </div>
                     )}
-
-                    {/* In-Message Quick Actions */}
-                    <div className="flex items-center gap-2 px-5 py-3 border-t border-border/40 bg-muted/10">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReplyMessage(msg, false);
-                        }}
-                        className="h-7 text-xs gap-1.5 cursor-pointer"
-                      >
-                        <Reply className="h-3 w-3" />
-                        Reply
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleForwardMessage(msg);
-                        }}
-                        className="h-7 text-xs gap-1.5 cursor-pointer"
-                      >
-                        <Forward className="h-3 w-3" />
-                        Forward
-                      </Button>
-                    </div>
                   </div>
                 )}
               </div>
             );
           })}
-
-          {/* Bottom Quick Reply Prompt */}
-          <div className="pt-2 pb-6 flex items-center gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleReplyMessage(latestMsg, false)}
-              className="h-9 px-4 text-xs font-semibold gap-2 border-dashed hover:border-solid cursor-pointer"
-            >
-              <Reply className="h-3.5 w-3.5" />
-              Click here to Reply
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => handleReplyMessage(latestMsg, true)}
-              className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5 cursor-pointer hidden sm:inline-flex"
-            >
-              <ReplyAll className="h-3.5 w-3.5" />
-              Reply all
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => handleForwardMessage(latestMsg)}
-              className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5 cursor-pointer"
-            >
-              <Forward className="h-3.5 w-3.5" />
-              Forward
-            </Button>
-          </div>
         </div>
       </div>
     </div>
