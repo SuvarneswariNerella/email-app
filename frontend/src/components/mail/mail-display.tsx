@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAtom } from 'jotai';
 import DOMPurify from 'dompurify';
@@ -10,8 +11,17 @@ import {
   Mail,
   MailOpen,
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  ChevronsUpDown,
 } from 'lucide-react';
-import { selectedMessageIdAtom, activeFolderAtom, isComposeOpenAtom, composeInitialDataAtom } from '../../store/mail-store';
+import {
+  selectedMessageIdAtom,
+  activeFolderAtom,
+  isComposeOpenAtom,
+  composeInitialDataAtom,
+} from '../../store/mail-store';
 import { api } from '../../lib/api';
 import { formatFullDate, getInitials } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -19,6 +29,7 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import { MailDisplaySkeleton } from './mail-skeleton';
 import { AttachmentsList } from './attachments-accordion';
 import { toast } from 'sonner';
+import type { EmailMessage } from '../../types/mail';
 
 export function MailDisplay() {
   const [selectedMessageId, setSelectedMessageId] = useAtom(selectedMessageIdAtom);
@@ -26,6 +37,9 @@ export function MailDisplay() {
   const [, setIsComposeOpen] = useAtom(isComposeOpenAtom);
   const [, setComposeData] = useAtom(composeInitialDataAtom);
   const queryClient = useQueryClient();
+
+  // State to track expanded status for each message in the conversation thread
+  const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
 
   const { data: message, isLoading, error } = useQuery({
     queryKey: ['message', selectedMessageId, activeFolder],
@@ -72,28 +86,26 @@ export function MailDisplay() {
     },
   });
 
-  const handleReply = (replyAll = false) => {
-    if (!message) return;
+  const handleReplyMessage = (targetMsg: EmailMessage, replyAll = false) => {
     const recipients = replyAll
-      ? [message.from.address, ...(message.to || []).map((t) => t.address), ...(message.cc || []).map((c) => c.address)]
-      : [message.from.address];
+      ? [targetMsg.from.address, ...(targetMsg.to || []).map((t) => t.address), ...(targetMsg.cc || []).map((c) => c.address)]
+      : [targetMsg.from.address];
 
-    const cleanSubject = message.subject.startsWith('Re:') ? message.subject : `Re: ${message.subject}`;
-    const quotedBody = `<br><br><hr><blockquote>On ${formatFullDate(message.date)}, ${message.from.name || message.from.address} wrote:<br>${message.bodyHtml || message.bodyText || ''}</blockquote>`;
+    const cleanSubject = targetMsg.subject.startsWith('Re:') ? targetMsg.subject : `Re: ${targetMsg.subject}`;
+    const quotedBody = `<br><br><hr><blockquote>On ${formatFullDate(targetMsg.date)}, ${targetMsg.from.name || targetMsg.from.address} wrote:<br>${targetMsg.bodyHtml || targetMsg.bodyText || ''}</blockquote>`;
 
     setComposeData({
       to: Array.from(new Set(recipients)).filter(Boolean),
       subject: cleanSubject,
       html: quotedBody,
-      inReplyTo: message.id,
+      inReplyTo: targetMsg.id,
     });
     setIsComposeOpen(true);
   };
 
-  const handleForward = () => {
-    if (!message) return;
-    const cleanSubject = message.subject.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`;
-    const quotedBody = `<br><br><hr><blockquote>---------- Forwarded message ---------<br>From: ${message.from.name || message.from.address} &lt;${message.from.address}&gt;<br>Date: ${formatFullDate(message.date)}<br>Subject: ${message.subject}<br>To: ${(message.to || []).map((t) => t.address).join(', ')}<br><br>${message.bodyHtml || message.bodyText || ''}</blockquote>`;
+  const handleForwardMessage = (targetMsg: EmailMessage) => {
+    const cleanSubject = targetMsg.subject.startsWith('Fwd:') ? targetMsg.subject : `Fwd: ${targetMsg.subject}`;
+    const quotedBody = `<br><br><hr><blockquote>---------- Forwarded message ---------<br>From: ${targetMsg.from.name || targetMsg.from.address} &lt;${targetMsg.from.address}&gt;<br>Date: ${formatFullDate(targetMsg.date)}<br>Subject: ${targetMsg.subject}<br>To: ${(targetMsg.to || []).map((t) => t.address).join(', ')}<br><br>${targetMsg.bodyHtml || targetMsg.bodyText || ''}</blockquote>`;
 
     setComposeData({
       to: [],
@@ -131,12 +143,42 @@ export function MailDisplay() {
     );
   }
 
-  const sanitizedHtml = message.bodyHtml
-    ? DOMPurify.sanitize(message.bodyHtml, {
-        ADD_ATTR: ['target'],
-        FORBID_TAGS: ['script', 'style'],
-      })
-    : '';
+  const thread: EmailMessage[] = message.thread && message.thread.length > 0 ? message.thread : [message];
+  const lastIndex = thread.length - 1;
+
+  // Toggle single message expand/collapse
+  const toggleExpand = (msgKey: string) => {
+    setExpandedMap((prev) => ({
+      ...prev,
+      [msgKey]: prev[msgKey] !== undefined ? !prev[msgKey] : false, // Default was expanded if last, so toggle flips it
+    }));
+  };
+
+  // Toggle all messages
+  const toggleAllMessages = () => {
+    const anyCollapsed = thread.some((m, idx) => {
+      const key = `${m.folder || activeFolder}:${m.uid || m.id}`;
+      return expandedMap[key] === false || (expandedMap[key] === undefined && idx !== lastIndex);
+    });
+
+    const newMap: Record<string, boolean> = {};
+    thread.forEach((m) => {
+      const key = `${m.folder || activeFolder}:${m.uid || m.id}`;
+      newMap[key] = anyCollapsed;
+    });
+    setExpandedMap(newMap);
+  };
+
+  const isMsgExpanded = (msg: EmailMessage, idx: number) => {
+    const key = `${msg.folder || activeFolder}:${msg.uid || msg.id}`;
+    if (expandedMap[key] !== undefined) {
+      return expandedMap[key];
+    }
+    // By default, expand the latest message (or if it's the only message)
+    return idx === lastIndex;
+  };
+
+  const latestMsg = thread[lastIndex] || message;
 
   return (
     <div className="h-full flex flex-col bg-card overflow-hidden">
@@ -147,7 +189,7 @@ export function MailDisplay() {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => handleReply(false)}
+            onClick={() => handleReplyMessage(latestMsg, false)}
             className="h-8 text-xs gap-1.5"
           >
             <Reply className="h-3.5 w-3.5" />
@@ -158,7 +200,7 @@ export function MailDisplay() {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => handleReply(true)}
+            onClick={() => handleReplyMessage(latestMsg, true)}
             className="h-8 text-xs gap-1.5 hidden sm:inline-flex"
           >
             <ReplyAll className="h-3.5 w-3.5" />
@@ -169,12 +211,25 @@ export function MailDisplay() {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={handleForward}
+            onClick={() => handleForwardMessage(latestMsg)}
             className="h-8 text-xs gap-1.5"
           >
             <Forward className="h-3.5 w-3.5" />
             Forward
           </Button>
+
+          {thread.length > 1 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={toggleAllMessages}
+              className="h-8 text-xs gap-1.5 ml-2 cursor-pointer"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+              Expand/Collapse All
+            </Button>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -215,68 +270,198 @@ export function MailDisplay() {
 
       {/* Main Email View Area */}
       <div className="flex-1 overflow-y-auto style-scrollbar flex flex-col">
-        {/* Email Header */}
-        <div className="p-5 pb-3 border-b border-border/40">
-          <h2 className="text-lg font-bold text-foreground tracking-tight leading-snug mb-3">
-            {message.subject || '(No Subject)'}
-          </h2>
-
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3 min-w-0">
-              <Avatar className="h-9 w-9 border border-border">
-                <AvatarFallback>{getInitials(message.from.name, message.from.address)}</AvatarFallback>
-              </Avatar>
-
-              <div className="min-w-0 text-left">
-                <div className="flex items-baseline gap-2 truncate">
-                  <span className="font-semibold text-xs text-foreground truncate">
-                    {message.from.name || message.from.address}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground truncate">
-                    &lt;{message.from.address}&gt;
-                  </span>
-                </div>
-
-                <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                  <span>To: </span>
-                  {(message.to || []).map((t) => t.name || t.address).join(', ')}
-                  {message.cc && message.cc.length > 0 && (
-                    <span className="ml-2">
-                      | Cc: {message.cc.map((c) => c.name || c.address).join(', ')}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">
-              {formatFullDate(message.date)}
-            </span>
+        {/* Email Thread Subject Header */}
+        <div className="p-5 pb-3 border-b border-border/40 bg-card">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h2 className="text-lg font-bold text-foreground tracking-tight leading-snug">
+              {message.subject || '(No Subject)'}
+            </h2>
+            {thread.length > 1 && (
+              <span className="flex items-center gap-1 text-[11px] font-semibold bg-primary/10 text-primary px-2.5 py-0.5 rounded-full whitespace-nowrap">
+                <MessageSquare className="h-3 w-3" />
+                {thread.length} messages
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Email Body */}
-        <div className="p-6 flex-1 text-sm leading-relaxed text-foreground select-text email-content-container">
-          {message.bodyHtml ? (
-            <div
-              className="email-body prose prose-sm dark:prose-invert max-w-none break-words dark:text-zinc-100"
-              dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-            />
-          ) : (
-            <pre className="font-sans whitespace-pre-wrap text-sm text-foreground dark:text-zinc-100 email-body">
-              {message.bodyText || ''}
-            </pre>
-          )}
-        </div>
+        {/* Conversation Thread Messages */}
+        <div className="flex-1 p-4 space-y-4">
+          {thread.map((msg, idx) => {
+            const key = `${msg.folder || activeFolder}:${msg.uid || msg.id}`;
+            const expanded = isMsgExpanded(msg, idx);
+            const isLast = idx === lastIndex;
 
-        {/* Attachments Section */}
-        {message.attachments && message.attachments.length > 0 && (
-          <AttachmentsList
-            attachments={message.attachments}
-            messageId={message.id}
-            folder={activeFolder}
-          />
-        )}
+            const sanitizedHtml = msg.bodyHtml
+              ? DOMPurify.sanitize(msg.bodyHtml, {
+                  ADD_ATTR: ['target'],
+                  FORBID_TAGS: ['script', 'style'],
+                })
+              : '';
+
+            return (
+              <div
+                key={key}
+                className={`rounded-xl border transition-all duration-200 overflow-hidden ${
+                  expanded
+                    ? 'border-border bg-card shadow-xs'
+                    : 'border-border/60 bg-muted/20 hover:bg-muted/40 cursor-pointer'
+                }`}
+              >
+                {/* Message Header */}
+                <div
+                  onClick={() => toggleExpand(key)}
+                  className={`flex items-start justify-between gap-4 p-4 select-none ${
+                    expanded ? 'border-b border-border/40 bg-card' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <Avatar className="h-8 w-8 border border-border">
+                      <AvatarFallback>{getInitials(msg.from.name, msg.from.address)}</AvatarFallback>
+                    </Avatar>
+
+                    <div className="min-w-0 flex-1 text-left">
+                      <div className="flex items-baseline gap-2 truncate">
+                        <span className="font-semibold text-xs text-foreground truncate">
+                          {msg.from.name || msg.from.address}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground truncate">
+                          &lt;{msg.from.address}&gt;
+                        </span>
+                        {msg.folder && /sent/i.test(msg.folder) && (
+                          <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.2 rounded">
+                            Sent
+                          </span>
+                        )}
+                      </div>
+
+                      {expanded ? (
+                        <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                          <span>To: </span>
+                          {(msg.to || []).map((t) => t.name || t.address).join(', ')}
+                          {msg.cc && msg.cc.length > 0 && (
+                            <span className="ml-2">
+                              | Cc: {msg.cc.map((c) => c.name || c.address).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {msg.snippet || msg.bodyText?.slice(0, 100) || '(No preview)'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      {formatFullDate(msg.date)}
+                    </span>
+                    {thread.length > 1 && (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+                        aria-label={expanded ? 'Collapse message' : 'Expand message'}
+                      >
+                        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Expanded Message Body & Attachments */}
+                {expanded && (
+                  <div>
+                    <div className="p-5 text-sm leading-relaxed text-foreground select-text email-content-container">
+                      {msg.bodyHtml ? (
+                        <div
+                          className="email-body prose prose-sm dark:prose-invert max-w-none break-words dark:text-zinc-100"
+                          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+                        />
+                      ) : (
+                        <pre className="font-sans whitespace-pre-wrap text-sm text-foreground dark:text-zinc-100 email-body">
+                          {msg.bodyText || ''}
+                        </pre>
+                      )}
+                    </div>
+
+                    {/* Attachments Section */}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="p-4 pt-0">
+                        <AttachmentsList
+                          attachments={msg.attachments}
+                          messageId={msg.id}
+                          folder={msg.folder || activeFolder}
+                        />
+                      </div>
+                    )}
+
+                    {/* In-Message Quick Actions */}
+                    <div className="flex items-center gap-2 px-5 py-3 border-t border-border/40 bg-muted/10">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReplyMessage(msg, false);
+                        }}
+                        className="h-7 text-xs gap-1.5 cursor-pointer"
+                      >
+                        <Reply className="h-3 w-3" />
+                        Reply
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleForwardMessage(msg);
+                        }}
+                        className="h-7 text-xs gap-1.5 cursor-pointer"
+                      >
+                        <Forward className="h-3 w-3" />
+                        Forward
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Bottom Quick Reply Prompt */}
+          <div className="pt-2 pb-6 flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleReplyMessage(latestMsg, false)}
+              className="h-9 px-4 text-xs font-semibold gap-2 border-dashed hover:border-solid cursor-pointer"
+            >
+              <Reply className="h-3.5 w-3.5" />
+              Click here to Reply
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleReplyMessage(latestMsg, true)}
+              className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5 cursor-pointer hidden sm:inline-flex"
+            >
+              <ReplyAll className="h-3.5 w-3.5" />
+              Reply all
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleForwardMessage(latestMsg)}
+              className="h-9 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5 cursor-pointer"
+            >
+              <Forward className="h-3.5 w-3.5" />
+              Forward
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

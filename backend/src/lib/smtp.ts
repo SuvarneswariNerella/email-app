@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
-import { getImapClient } from './imap.js';
+import { getConnectedClient, findSentMailbox } from './imap.js';
 
 export async function sendMail(
   email: string,
@@ -42,17 +42,17 @@ export async function sendMail(
 
   const info = await transporter.sendMail(mailOptions);
 
-  // Append copy to IMAP Sent folder
+  // Append copy of sent email to IMAP Sent folder
   try {
-    const imap = getImapClient(email, pass);
-    await imap.connect();
-    // Build raw message buffer
-    const mailComposer = new (await import('nodemailer/lib/mail-composer/index.js')).default(mailOptions);
+    const imap = await getConnectedClient(email, pass);
+    const sentMailbox = await findSentMailbox(imap);
+    const mailComposerModule = await import('nodemailer/lib/mail-composer/index.js');
+    const MailComposer = (mailComposerModule as any).default || mailComposerModule;
+    const mailComposer = new MailComposer(mailOptions);
     const rawBuffer = await mailComposer.compile().build();
-    await imap.append('Sent', rawBuffer, ['\\Seen']);
-    await imap.logout();
-  } catch {
-    // Non-fatal if append fails
+    await imap.append(sentMailbox, rawBuffer, ['\\Seen']);
+  } catch (appendErr) {
+    console.error('[SMTP Append to Sent Error]:', appendErr);
   }
 
   return info;

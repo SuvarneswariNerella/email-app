@@ -282,75 +282,160 @@ export async function fetchMessages(
   }
 }
 
+export async function findSentMailbox(client: ImapFlow): Promise<string> {
+  try {
+    const list = await client.list();
+    // 1. Check for specialUse \Sent
+    const specialSent = list.find((b) => b.specialUse === '\\Sent');
+    if (specialSent) return specialSent.path;
+
+    // 2. Check common Sent folder naming conventions
+    const nameSent = list.find((b) =>
+      /^(sent|inbox\.sent|sent\s*items|sent\s*messages|\[gmail\]\/sent\s*mail)$/i.test(b.path) ||
+      /^(sent|sent\s*items|sent\s*messages)$/i.test(b.name),
+    );
+    if (nameSent) return nameSent.path;
+  } catch {}
+
+  return 'Sent';
+}
+
+function cleanSubjectForThread(subj: string): string {
+  if (!subj) return '';
+  return subj
+    .replace(/^(\s*(re|fwd|fw|aw|sv|vs|r):\s*)+/gi, '')
+    .replace(/\[[^\]]+\]/g, '')
+    .trim();
+}
+
+async function parseEmailContent(downloadContent: any, folder: string, uid: number) {
+  const parsed = await simpleParser(downloadContent);
+
+  let bodyHtml = parsed.html || undefined;
+  const attachments = (parsed.attachments || []).map((att, idx) => {
+    if (att.contentId && att.content && bodyHtml) {
+      const cleanCid = att.contentId.replace(/^<|>$/g, '');
+      const base64 = att.content.toString('base64');
+      const dataUri = `data:${att.contentType || 'image/png'};base64,${base64}`;
+      bodyHtml = bodyHtml.replaceAll(`cid:${cleanCid}`, dataUri);
+      bodyHtml = bodyHtml.replaceAll(`cid:${att.contentId}`, dataUri);
+    }
+
+    return {
+      id: idx.toString(),
+      filename: att.filename || `attachment_${idx + 1}`,
+      contentType: att.contentType,
+      size: att.size,
+      contentId: att.contentId,
+    };
+  });
+
+  const fromAddr = parsed.from?.value?.[0]
+    ? { name: parsed.from.value[0].name || '', address: parsed.from.value[0].address || '' }
+    : { name: '', address: '' };
+
+  const toAddrs = Array.isArray(parsed.to)
+    ? parsed.to.flatMap((t) => t.value).map((v) => ({ name: v.name || '', address: v.address || '' }))
+    : parsed.to?.value
+      ? parsed.to.value.map((v) => ({ name: v.name || '', address: v.address || '' }))
+      : [];
+
+  const ccAddrs = Array.isArray(parsed.cc)
+    ? parsed.cc.flatMap((c) => c.value).map((v) => ({ name: v.name || '', address: v.address || '' }))
+    : parsed.cc?.value
+      ? parsed.cc.value.map((v) => ({ name: v.name || '', address: v.address || '' }))
+      : [];
+
+  return {
+    id: uid.toString(),
+    uid,
+    folder,
+    messageId: parsed.messageId || undefined,
+    inReplyTo: parsed.inReplyTo || undefined,
+    subject: parsed.subject || '(No Subject)',
+    from: fromAddr,
+    to: toAddrs,
+    cc: ccAddrs,
+    date: parsed.date ? parsed.date.toISOString() : new Date().toISOString(),
+    snippet: (parsed.text || '').slice(0, 150).replace(/\s+/g, ' ').trim(),
+    bodyHtml,
+    bodyText: parsed.text || undefined,
+    attachments,
+    unread: false,
+    starred: false,
+  };
+}
+
 export async function fetchFullMessage(email: string, pass: string, folder: string, uid: number) {
   const client = await getConnectedClient(email, pass);
   const lock = await client.getMailboxLock(folder);
 
+  let currentMsg: any = null;
   try {
     const download = await client.download(uid.toString(), undefined, { uid: true });
     if (!download || !download.content) {
       throw new Error('Message content not found');
     }
 
-    const parsed = await simpleParser(download.content);
-
-    // Extract attachments metadata and handle inline CID images
-    let bodyHtml = parsed.html || undefined;
-    const attachments = (parsed.attachments || []).map((att, idx) => {
-      if (att.contentId && att.content && bodyHtml) {
-        const cleanCid = att.contentId.replace(/^<|>$/g, '');
-        const base64 = att.content.toString('base64');
-        const dataUri = `data:${att.contentType || 'image/png'};base64,${base64}`;
-        bodyHtml = bodyHtml.replaceAll(`cid:${cleanCid}`, dataUri);
-        bodyHtml = bodyHtml.replaceAll(`cid:${att.contentId}`, dataUri);
-      }
-
-      return {
-        id: idx.toString(),
-        filename: att.filename || `attachment_${idx + 1}`,
-        contentType: att.contentType,
-        size: att.size,
-        contentId: att.contentId,
-      };
-    });
-
-    const fromAddr = parsed.from?.value?.[0]
-      ? { name: parsed.from.value[0].name, address: parsed.from.value[0].address }
-      : { name: '', address: '' };
-
-    const toAddrs = Array.isArray(parsed.to)
-      ? parsed.to.flatMap((t) => t.value).map((v) => ({ name: v.name, address: v.address }))
-      : parsed.to?.value
-        ? parsed.to.value.map((v) => ({ name: v.name, address: v.address }))
-        : [];
-
-    const ccAddrs = Array.isArray(parsed.cc)
-      ? parsed.cc.flatMap((c) => c.value).map((v) => ({ name: v.name, address: v.address }))
-      : parsed.cc?.value
-        ? parsed.cc.value.map((v) => ({ name: v.name, address: v.address }))
-        : [];
+    currentMsg = await parseEmailContent(download.content, folder, uid);
 
     // Mark message as read
     await client.messageFlagsAdd(uid.toString(), ['\\Seen'], { uid: true }).catch(() => {});
-
-    return {
-      id: uid.toString(),
-      uid,
-      folder,
-      subject: parsed.subject || '(No Subject)',
-      from: fromAddr,
-      to: toAddrs,
-      cc: ccAddrs,
-      date: parsed.date ? parsed.date.toISOString() : new Date().toISOString(),
-      bodyHtml,
-      bodyText: parsed.text || undefined,
-      attachments,
-      unread: false,
-      starred: false,
-    };
   } finally {
     lock.release();
   }
+
+  // Conversation Thread Retrieval (find original message and all replies across Inbox and Sent)
+  const threadMap = new Map<string, any>();
+  threadMap.set(`${folder}:${uid}`, currentMsg);
+
+  const baseSubject = cleanSubjectForThread(currentMsg.subject);
+
+  if (baseSubject.length >= 2) {
+    const sentMailbox = await findSentMailbox(client);
+    const foldersToSearch = Array.from(new Set([folder, sentMailbox]));
+
+    for (const searchFolder of foldersToSearch) {
+      try {
+        const folderLock = await client.getMailboxLock(searchFolder);
+        try {
+          const searchRes = await client.search(
+            { subject: baseSubject },
+            { uid: true },
+          );
+          const uids: number[] = Array.isArray(searchRes) ? searchRes : [];
+          // Limit to latest 15 messages in thread for fast loading
+          const targetUids = uids.slice(-15);
+
+          for (const threadUid of targetUids) {
+            const key = `${searchFolder}:${threadUid}`;
+            if (threadMap.has(key)) continue;
+
+            try {
+              const dl = await client.download(threadUid.toString(), undefined, { uid: true });
+              if (dl && dl.content) {
+                const parsedMsg = await parseEmailContent(dl.content, searchFolder, threadUid);
+                if (cleanSubjectForThread(parsedMsg.subject).toLowerCase() === baseSubject.toLowerCase()) {
+                  threadMap.set(key, parsedMsg);
+                }
+              }
+            } catch {}
+          }
+        } finally {
+          folderLock.release();
+        }
+      } catch {}
+    }
+  }
+
+  const thread = Array.from(threadMap.values()).sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+
+  return {
+    ...currentMsg,
+    thread: thread.length > 1 ? thread : [currentMsg],
+  };
 }
 
 export async function fetchAttachmentContent(

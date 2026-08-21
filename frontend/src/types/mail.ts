@@ -32,6 +32,9 @@ export interface EmailMessage {
   flagged?: boolean;
   draft?: boolean;
   size?: number;
+  messageId?: string;
+  inReplyTo?: string;
+  thread?: EmailMessage[];
 }
 
 export interface MailFolder {
