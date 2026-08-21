@@ -256,14 +256,14 @@ export function MailDisplay() {
         </div>
 
         {/* Email Body */}
-        <div className="p-6 flex-1 text-sm leading-relaxed text-foreground select-text">
+        <div className="p-6 flex-1 text-sm leading-relaxed text-foreground select-text email-content-container">
           {message.bodyHtml ? (
             <div
-              className="prose prose-sm dark:prose-invert max-w-none break-words"
+              className="email-body prose prose-sm dark:prose-invert max-w-none break-words dark:text-zinc-100"
               dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
             />
           ) : (
-            <pre className="font-sans whitespace-pre-wrap text-sm text-foreground">
+            <pre className="font-sans whitespace-pre-wrap text-sm text-foreground dark:text-zinc-100 email-body">
               {message.bodyText || ''}
             </pre>
           )}

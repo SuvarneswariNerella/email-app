@@ -153,3 +153,64 @@
   padding: 0.75rem;
   font-family: var(--font-geist-mono);
 }
+
+/* Email content dark mode text visibility */
+.dark .email-content-container,
+.dark .email-body,
+.dark .email-body p,
+.dark .email-body span,
+.dark .email-body div,
+.dark .email-body font,
+.dark .email-body td,
+.dark .email-body th,
+.dark .email-body li,
+.dark .email-body h1,
+.dark .email-body h2,
+.dark .email-body h3,
+.dark .email-body h4,
+.dark .email-body h5,
+.dark .email-body h6,
+.dark .email-body b,
+.dark .email-body strong,
+.dark .email-body i,
+.dark .email-body em,
+.dark .email-body u {
+  color: hsl(0 0% 98%) !important;
+}
+
+.dark .email-body a {
+  color: #60a5fa !important;
+  text-decoration: underline;
+}
+
+.dark .email-body blockquote {
+  border-left-color: hsl(240 3.7% 20%);
+  color: hsl(240 5% 70%) !important;
+}
+
+.dark .email-body code,
+.dark .email-body pre {
+  background-color: hsl(240 3.7% 15.9%) !important;
+  color: hsl(0 0% 98%) !important;
+}
+
+.dark .email-body table,
+.dark .email-body td,
+.dark .email-body th {
+  border-color: hsl(240 3.7% 20%) !important;
+}
+
+.dark .email-body [style*="color: #0"],
+.dark .email-body [style*="color:#0"],
+.dark .email-body [style*="color: black"],
+.dark .email-body [style*="color:black"],
+.dark .email-body [style*="color: rgb(0"],
+.dark .email-body [style*="color:rgb(0"],
+.dark .email-body [style*="color: #1"],
+.dark .email-body [style*="color: #2"],
+.dark .email-body [style*="color: #3"],
+.dark .email-body font[color*="#0"],
+.dark .email-body font[color*="black"] {
+  color: hsl(0 0% 98%) !important;
+}
+
