@@ -178,6 +178,9 @@ export async function fetchMessages(
           address: t.address || '',
         }));
 
+        const isDeleted = message.flags ? message.flags.has('\\Deleted') : false;
+        if (isDeleted) continue;
+
         const isUnread = message.flags ? !message.flags.has('\\Seen') : true;
         const isStarred = message.flags ? message.flags.has('\\Flagged') : false;
 
@@ -238,6 +241,9 @@ export async function fetchMessages(
         name: t.name || '',
         address: t.address || '',
       }));
+
+      const isDeleted = message.flags ? message.flags.has('\\Deleted') : false;
+      if (isDeleted) continue;
 
       const isUnread = message.flags ? !message.flags.has('\\Seen') : true;
       const isStarred = message.flags ? message.flags.has('\\Flagged') : false;
@@ -406,6 +412,24 @@ export async function saveDraftMessage(
   return { success: true };
 }
 
+async function findTrashMailbox(client: ImapFlow): Promise<string> {
+  try {
+    const list = await client.list();
+    // 1. Check for specialUse \Trash
+    const specialTrash = list.find((b) => b.specialUse === '\\Trash');
+    if (specialTrash) return specialTrash.path;
+
+    // 2. Check for common Trash / Deleted Items folder naming patterns
+    const nameTrash = list.find((b) =>
+      /^(trash|deleted(\s*items)?|bin|inbox\.trash|inbox\.deleted(\s*items)?)$/i.test(b.path) ||
+      /^(trash|deleted(\s*items)?|bin)$/i.test(b.name),
+    );
+    if (nameTrash) return nameTrash.path;
+  } catch {}
+
+  return 'Trash';
+}
+
 export async function updateMessageFlags(
   email: string,
   pass: string,
@@ -434,10 +458,37 @@ export async function updateMessageFlags(
         await client.messageFlagsRemove(range, ['\\Flagged'], { uid: true });
       }
     } else if (action === 'delete') {
-      try {
-        await client.messageMove(range, 'Trash', { uid: true });
-      } catch {
-        await client.messageFlagsAdd(range, ['\\Deleted'], { uid: true });
+      const trashFolder = await findTrashMailbox(client);
+      const isAlreadyInTrash =
+        folder.toLowerCase() === trashFolder.toLowerCase() ||
+        /^(trash|deleted(\s*items)?|bin|inbox\.trash)$/i.test(folder);
+
+      if (isAlreadyInTrash) {
+        // Permanently delete from server and expunge
+        await client.messageDelete(range, { uid: true });
+      } else {
+        // Move message to Trash / Deleted Items folder on the server
+        let moved = false;
+        try {
+          await client.messageMove(range, trashFolder, { uid: true });
+          moved = true;
+        } catch {
+          // Try common fallback mailbox folder names
+          for (const fallback of ['Trash', 'INBOX.Trash', 'Deleted Items', 'Deleted Messages', 'Bin', 'INBOX.Deleted Items']) {
+            if (fallback.toLowerCase() !== trashFolder.toLowerCase()) {
+              try {
+                await client.messageMove(range, fallback, { uid: true });
+                moved = true;
+                break;
+              } catch {}
+            }
+          }
+        }
+
+        if (!moved) {
+          // If server doesn't support mailbox move, permanently delete
+          await client.messageDelete(range, { uid: true });
+        }
       }
     } else if (action === 'move' && targetFolder) {
       await client.messageMove(range, targetFolder, { uid: true });
