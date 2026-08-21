@@ -48,9 +48,10 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Rejection]:', reason);
 });
 
-app.listen(config.port, '0.0.0.0', () => {
+const HOST = '0.0.0.0';
+app.listen(config.port, HOST, () => {
   console.log(`=========================================`);
-  console.log(` Webmail Backend API running on port ${config.port}`);
+  console.log(` Webmail Backend API running on ${HOST}:${config.port}`);
   console.log(` Target IMAP Server: ${config.imap.host}:${config.imap.port}`);
   console.log(` Target SMTP Server: ${config.smtp.host}:${config.smtp.port}`);
   console.log(`=========================================`);
