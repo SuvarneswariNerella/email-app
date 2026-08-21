@@ -18,6 +18,8 @@ services:
       - SMTP_PORT=${SMTP_PORT:-465}
       - SMTP_SECURE=${SMTP_SECURE:-true}
       - JWT_SECRET=${JWT_SECRET:-corporate_secure_webmail_jwt_secret_key}
+    networks:
+      - webmail-net
 
   frontend:
     build:
@@ -28,3 +30,9 @@ services:
       - "80"
     depends_on:
       - backend
+    networks:
+      - webmail-net
+
+networks:
+  webmail-net:
+    driver: bridge
