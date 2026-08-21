@@ -6,17 +6,17 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    ports:
-      - "4000:4000"
+    expose:
+      - "4000"
     environment:
       - PORT=4000
       - CLIENT_URL=${CLIENT_URL:-http://localhost:3000}
-      - IMAP_HOST=${IMAP_HOST:-mail.yourcompany.com}
+      - IMAP_HOST=${IMAP_HOST:-mail.aprogra.com}
       - IMAP_PORT=${IMAP_PORT:-993}
       - IMAP_SECURE=${IMAP_SECURE:-true}
-      - SMTP_HOST=${SMTP_HOST:-mail.yourcompany.com}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_HOST=${SMTP_HOST:-mail.aprogra.com}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_SECURE=${SMTP_SECURE:-true}
       - JWT_SECRET=${JWT_SECRET:-corporate_secure_webmail_jwt_secret_key}
 
   frontend:
@@ -24,7 +24,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
     depends_on:
       - backend
